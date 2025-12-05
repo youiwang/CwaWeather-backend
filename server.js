@@ -126,11 +126,95 @@ const getKaohsiungWeather = async (req, res) => {
   }
 };
 
+/**
+ * 取得所有城市氣預報
+ * CWA 氣象資料開放平臺 API
+ * 使用「一般天氣預報-今明 36 小時天氣預報」資料集
+ */
+const getAllWeather = async (req, res) => {
+  try {
+    if (!CWA_API_KEY) {
+      return res.status(500).json({ error: "Missing API Key" });
+    }
+
+    // 1. Call API without 'locationName' to get ALL cities
+    const response = await axios.get(
+      `${CWA_API_BASE_URL}/v1/rest/datastore/F-C0032-001`,
+      {
+        params: {
+          Authorization: CWA_API_KEY,
+          // We REMOVED locationName here!
+        },
+      }
+    );
+
+    const allLocations = response.data.records.location; // Array of 22 cities
+
+    // 2. Prepare an array to hold cleaned data for ALL cities
+    const allCitiesData = allLocations.map((location) => {
+      const cityData = {
+        city: location.locationName,
+        forecasts: [],
+      };
+
+      // Reuse your existing logic to parse elements, but inside this loop
+      const weatherElements = location.weatherElement;
+      const timeCount = weatherElements[0].time.length;
+
+      for (let i = 0; i < timeCount; i++) {
+        const forecast = {
+          startTime: weatherElements[0].time[i].startTime,
+          endTime: weatherElements[0].time[i].endTime,
+          weather: "",
+          rain: "",
+          minTemp: "",
+          maxTemp: "",
+          comfort: "",
+        };
+
+        weatherElements.forEach((element) => {
+          const value = element.time[i].parameter;
+          switch (element.elementName) {
+            case "Wx":
+              forecast.weather = value.parameterName;
+              break;
+            case "PoP":
+              forecast.rain = value.parameterName + "%";
+              break;
+            case "MinT":
+              forecast.minTemp = value.parameterName + "°C";
+              break;
+            case "MaxT":
+              forecast.maxTemp = value.parameterName + "°C";
+              break;
+            case "CI":
+              forecast.comfort = value.parameterName;
+              break;
+          }
+        });
+        cityData.forecasts.push(forecast);
+      }
+
+      return cityData;
+    });
+
+    // 3. Send the list of all cities back
+    res.json({
+      success: true,
+      data: allCitiesData, // This is now an Array []
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: "Server Error" });
+  }
+};
+
 // Routes
 app.get("/", (req, res) => {
   res.json({
     message: "歡迎使用 CWA 天氣預報 API",
     endpoints: {
+      all: "/api/weather/all",
       kaohsiung: "/api/weather/kaohsiung",
       health: "/api/health",
     },
@@ -143,6 +227,7 @@ app.get("/api/health", (req, res) => {
 
 // 取得高雄天氣預報
 app.get("/api/weather/kaohsiung", getKaohsiungWeather);
+app.get("/api/weather/all", getAllWeather);
 
 // Error handling middleware
 app.use((err, req, res, next) => {
